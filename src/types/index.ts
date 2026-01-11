@@ -149,3 +149,18 @@ export interface AppState {
     lastSyncTime: string | null;
     pendingSyncCount: number;
 }
+
+// Inventory audit log for tracking changes
+export interface InventoryLog {
+    id: string;
+    itemId: string;
+    itemName: string;
+    userId: string;
+    userName: string;
+    changeType: 'update' | 'create' | 'delete' | 'adjustment';
+    fieldChanged: string;
+    oldValue: string;
+    newValue: string;
+    reason: string;
+    createdAt: string;
+}

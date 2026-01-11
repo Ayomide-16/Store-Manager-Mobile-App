@@ -9,3 +9,5 @@ export { default as RestocksScreen } from './RestocksScreen';
 export { default as ReportsScreen } from './ReportsScreen';
 export { default as ReconciliationScreen } from './ReconciliationScreen';
 export { default as UserManagementScreen } from './UserManagementScreen';
+export { default as SettingsScreen } from './SettingsScreen';
+export { default as InventoryAuditScreen } from './InventoryAuditScreen';

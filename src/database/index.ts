@@ -5,14 +5,14 @@ const DB_NAME = 'shop_manager.db';
 
 // Open database
 export const openDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
-    return await SQLite.openDatabaseAsync(DB_NAME);
+  return await SQLite.openDatabaseAsync(DB_NAME);
 };
 
 // Initialize all tables
 export const initDatabase = async (): Promise<void> => {
-    const db = await openDatabase();
+  const db = await openDatabase();
 
-    await db.execAsync(`
+  await db.execAsync(`
     -- Users table (cached from server)
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -160,25 +160,42 @@ export const initDatabase = async (): Promise<void> => {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    -- Inventory audit logs
+    CREATE TABLE IF NOT EXISTS inventory_logs (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      change_type TEXT NOT NULL,
+      field_changed TEXT NOT NULL,
+      old_value TEXT,
+      new_value TEXT,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      is_synced INTEGER DEFAULT 0,
+      pending_operation TEXT
+    );
   `);
 
-    console.log('Database initialized successfully');
+  console.log('Database initialized successfully');
 };
 
 // Get database instance
 let dbInstance: SQLite.SQLiteDatabase | null = null;
 
 export const getDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
-    if (!dbInstance) {
-        dbInstance = await openDatabase();
-    }
-    return dbInstance;
+  if (!dbInstance) {
+    dbInstance = await openDatabase();
+  }
+  return dbInstance;
 };
 
 // Clear all data (for logout)
 export const clearAllData = async (): Promise<void> => {
-    const db = await getDatabase();
-    await db.execAsync(`
+  const db = await getDatabase();
+  await db.execAsync(`
     DELETE FROM sale_items;
     DELETE FROM sales;
     DELETE FROM pos_transactions;
@@ -188,6 +205,7 @@ export const clearAllData = async (): Promise<void> => {
     DELETE FROM items;
     DELETE FROM categories;
     DELETE FROM users;
+    DELETE FROM inventory_logs;
     DELETE FROM sync_queue;
     DELETE FROM app_metadata;
   `);

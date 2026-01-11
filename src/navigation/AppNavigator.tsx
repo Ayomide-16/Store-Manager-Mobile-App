@@ -1,16 +1,18 @@
-// Main Navigation Setup with All Screens
+// Main Navigation with Sales History, Settings, and Audit Log
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import {
     Home, ShoppingCart, Package, Receipt, Banknote, MoreHorizontal,
-    BarChart3, Calculator, Users, Truck
+    BarChart3, Calculator, Users, Truck, Settings, ClipboardList
 } from 'lucide-react-native';
 
 import { useShop } from '../store/ShopContext';
+import { useTheme } from '../store/ThemeContext';
 import { UserRole } from '../types';
+
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import SalesCalculatorScreen from '../screens/SalesCalculatorScreen';
@@ -21,13 +23,16 @@ import RestocksScreen from '../screens/RestocksScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import ReconciliationScreen from '../screens/ReconciliationScreen';
 import UserManagementScreen from '../screens/UserManagementScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import InventoryAuditScreen from '../screens/InventoryAuditScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 // More Menu Screen (for additional screens)
 const MoreScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-    const { currentUser, logout } = useShop();
+    const { currentUser } = useShop();
+    const { theme } = useTheme();
     const isAdmin = currentUser?.role === UserRole.ADMIN;
 
     const menuItems = [
@@ -35,11 +40,13 @@ const MoreScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         { name: 'Reports', screen: 'ReportsStack', icon: BarChart3, color: '#2563EB', adminOnly: true },
         { name: 'Reconciliation', screen: 'ReconciliationStack', icon: Calculator, color: '#7C3AED', adminOnly: true },
         { name: 'User Management', screen: 'UserManagementStack', icon: Users, color: '#EC4899', adminOnly: true },
+        { name: 'Inventory Audit', screen: 'InventoryAuditStack', icon: ClipboardList, color: '#D97706', adminOnly: true },
+        { name: 'Settings', screen: 'SettingsStack', icon: Settings, color: '#64748B', adminOnly: false },
     ];
 
     return (
-        <View style={styles.moreContainer}>
-            <Text style={styles.moreTitle}>More Options</Text>
+        <View style={[styles.moreContainer, { backgroundColor: theme.background }]}>
+            <Text style={[styles.moreTitle, { color: theme.text }]}>More Options</Text>
 
             {menuItems.map((item, idx) => {
                 if (item.adminOnly && !isAdmin) return null;
@@ -47,25 +54,21 @@ const MoreScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 return (
                     <TouchableOpacity
                         key={idx}
-                        style={styles.menuItem}
+                        style={[styles.menuItem, { backgroundColor: theme.surface, borderColor: theme.border }]}
                         onPress={() => navigation.navigate(item.screen)}
                     >
                         <View style={[styles.menuIcon, { backgroundColor: `${item.color}15` }]}>
                             <Icon color={item.color} size={22} />
                         </View>
-                        <Text style={styles.menuLabel}>{item.name}</Text>
+                        <Text style={[styles.menuLabel, { color: theme.text }]}>{item.name}</Text>
                     </TouchableOpacity>
                 );
             })}
-
-            <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-                <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
         </View>
     );
 };
 
-// Stack navigators for each screen (needed for proper navigation from More menu)
+// Stack navigators for each screen
 const RestocksStack = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="RestocksMain" component={RestocksScreen} />
@@ -90,14 +93,28 @@ const UserManagementStack = () => (
     </Stack.Navigator>
 );
 
+const SettingsStack = () => (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="SettingsMain" component={SettingsScreen} />
+    </Stack.Navigator>
+);
+
+const InventoryAuditStack = () => (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="InventoryAuditMain" component={InventoryAuditScreen} />
+    </Stack.Navigator>
+);
+
 // Main Tab Navigator
 const TabNavigator: React.FC = () => {
+    const { theme } = useTheme();
+
     return (
         <Tab.Navigator
             screenOptions={{
                 headerShown: false,
                 tabBarStyle: {
-                    backgroundColor: '#fff',
+                    backgroundColor: theme.surface,
                     borderTopWidth: 0,
                     height: 80,
                     paddingBottom: 20,
@@ -108,8 +125,8 @@ const TabNavigator: React.FC = () => {
                     shadowRadius: 12,
                     elevation: 16,
                 },
-                tabBarActiveTintColor: '#4F46E5',
-                tabBarInactiveTintColor: '#94A3B8',
+                tabBarActiveTintColor: theme.primary,
+                tabBarInactiveTintColor: theme.textMuted,
                 tabBarLabelStyle: {
                     fontSize: 10,
                     fontWeight: '700',
@@ -125,10 +142,9 @@ const TabNavigator: React.FC = () => {
                 }}
             />
             <Tab.Screen
-                name="SalesCalculator"
+                name="Sales"
                 component={SalesCalculatorScreen}
                 options={{
-                    tabBarLabel: 'Sales',
                     tabBarIcon: ({ color }) => <ShoppingCart color={color} size={22} />,
                 }}
             />
@@ -140,11 +156,10 @@ const TabNavigator: React.FC = () => {
                 }}
             />
             <Tab.Screen
-                name="POSWithdrawals"
-                component={POSWithdrawalsScreen}
+                name="History"
+                component={SalesHistoryScreen}
                 options={{
-                    tabBarLabel: 'POS',
-                    tabBarIcon: ({ color }) => <Banknote color={color} size={22} />,
+                    tabBarIcon: ({ color }) => <Receipt color={color} size={22} />,
                 }}
             />
             <Tab.Screen
@@ -163,11 +178,13 @@ const MainStack: React.FC = () => {
     return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Tabs" component={TabNavigator} />
-            <Stack.Screen name="SalesHistory" component={SalesHistoryScreen} />
+            <Stack.Screen name="POSWithdrawals" component={POSWithdrawalsScreen} />
             <Stack.Screen name="RestocksStack" component={RestocksStack} />
             <Stack.Screen name="ReportsStack" component={ReportsStack} />
             <Stack.Screen name="ReconciliationStack" component={ReconciliationStack} />
             <Stack.Screen name="UserManagementStack" component={UserManagementStack} />
+            <Stack.Screen name="SettingsStack" component={SettingsStack} />
+            <Stack.Screen name="InventoryAuditStack" component={InventoryAuditStack} />
         </Stack.Navigator>
     );
 };
@@ -175,6 +192,7 @@ const MainStack: React.FC = () => {
 // Root Navigator (Auth + Main)
 const RootNavigator: React.FC = () => {
     const { currentUser, isLoading } = useShop();
+    const { isDark } = useTheme();
 
     if (isLoading) {
         return null;
@@ -191,10 +209,20 @@ const RootNavigator: React.FC = () => {
     );
 };
 
-// Navigation Container
+// Navigation Container with theme
 const AppNavigator: React.FC = () => {
+    const { theme, isDark } = useTheme();
+
+    const navTheme = isDark ? {
+        ...DarkTheme,
+        colors: { ...DarkTheme.colors, background: theme.background },
+    } : {
+        ...DefaultTheme,
+        colors: { ...DefaultTheme.colors, background: theme.background },
+    };
+
     return (
-        <NavigationContainer>
+        <NavigationContainer theme={navTheme}>
             <RootNavigator />
         </NavigationContainer>
     );
@@ -203,25 +231,21 @@ const AppNavigator: React.FC = () => {
 const styles = StyleSheet.create({
     moreContainer: {
         flex: 1,
-        backgroundColor: '#F8FAFC',
         padding: 20,
         paddingTop: 60,
     },
     moreTitle: {
         fontSize: 28,
         fontWeight: '800',
-        color: '#0F172A',
         marginBottom: 24,
     },
     menuItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fff',
         padding: 16,
         borderRadius: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: '#E2E8F0',
     },
     menuIcon: {
         width: 44,
@@ -234,21 +258,6 @@ const styles = StyleSheet.create({
     menuLabel: {
         fontSize: 16,
         fontWeight: '700',
-        color: '#0F172A',
-    },
-    logoutButton: {
-        marginTop: 'auto',
-        backgroundColor: '#FEF2F2',
-        padding: 18,
-        borderRadius: 16,
-        alignItems: 'center',
-    },
-    logoutText: {
-        fontSize: 14,
-        fontWeight: '800',
-        color: '#DC2626',
-        textTransform: 'uppercase',
-        letterSpacing: 1,
     },
 });
 

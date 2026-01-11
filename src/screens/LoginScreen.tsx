@@ -1,182 +1,226 @@
-// Login Screen - matches web app design
+// Login Screen with Safe Area, Theme, and Web Link
 import React, { useState } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, StyleSheet,
-    KeyboardAvoidingView, Platform, ActivityIndicator, Alert
+    KeyboardAvoidingView, Platform, Linking, Alert
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShop } from '../store/ShopContext';
-import { Mail, Lock, Eye, EyeOff, Store } from 'lucide-react-native';
+import { useTheme } from '../store/ThemeContext';
+import { Store, Mail, Lock, Eye, EyeOff, Loader2, Wifi, ExternalLink } from 'lucide-react-native';
+
+const WEB_APP_URL = 'https://naijashop-manager.vercel.app';
 
 const LoginScreen: React.FC = () => {
-    const { login, isLoading } = useShop();
+    const { login, appState } = useShop();
+    const { theme } = useTheme();
+    const insets = useSafeAreaInsets();
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const [localLoading, setLocalLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleLogin = async () => {
         if (!email || !password) {
-            Alert.alert('Error', 'Please enter email and password');
+            setError('Please enter email and password');
             return;
         }
 
-        setLocalLoading(true);
+        setIsLoading(true);
+        setError(null);
+
         try {
             await login(email, password);
         } catch (err: any) {
-            Alert.alert('Login Failed', err.message || 'Invalid credentials');
+            setError(err.message || 'Login failed');
         } finally {
-            setLocalLoading(false);
+            setIsLoading(false);
+        }
+    };
+
+    const openWebApp = async () => {
+        try {
+            await Linking.openURL(WEB_APP_URL);
+        } catch (err) {
+            Alert.alert('Error', 'Could not open web browser');
         }
     };
 
     return (
-        <KeyboardAvoidingView
-            style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-            <StatusBar style="dark" />
-
-            <View style={styles.header}>
-                <View style={styles.logoContainer}>
-                    <Store color="#4F46E5" size={40} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+            <KeyboardAvoidingView
+                style={styles.content}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+                {/* Logo */}
+                <View style={[styles.logoContainer, { backgroundColor: theme.primaryLight }]}>
+                    <Store color={theme.primary} size={48} />
                 </View>
-                <Text style={styles.title}>Shop Manager</Text>
-                <Text style={styles.subtitle}>Sign in to continue</Text>
-            </View>
 
-            <View style={styles.form}>
-                <View style={styles.inputContainer}>
-                    <Mail color="#94A3B8" size={20} style={styles.inputIcon} />
+                <Text style={[styles.title, { color: theme.text }]}>Shop Manager</Text>
+                <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign in to your account</Text>
+
+                {/* Offline Indicator */}
+                {!appState.isOnline && (
+                    <View style={[styles.offlineBadge, { backgroundColor: theme.warningLight }]}>
+                        <Wifi color={theme.warning} size={16} />
+                        <Text style={[styles.offlineText, { color: theme.warning }]}>Offline Mode Available</Text>
+                    </View>
+                )}
+
+                {/* Error Message */}
+                {error && (
+                    <View style={[styles.errorBox, { backgroundColor: theme.dangerLight }]}>
+                        <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text>
+                    </View>
+                )}
+
+                {/* Email Input */}
+                <View style={[styles.inputContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <Mail color={theme.textMuted} size={20} />
                     <TextInput
-                        style={styles.input}
-                        placeholder="Email Address"
-                        placeholderTextColor="#94A3B8"
+                        style={[styles.input, { color: theme.text }]}
+                        placeholder="Email address"
+                        placeholderTextColor={theme.textMuted}
                         value={email}
                         onChangeText={setEmail}
                         keyboardType="email-address"
                         autoCapitalize="none"
-                        autoComplete="email"
+                        autoCorrect={false}
                     />
                 </View>
 
-                <View style={styles.inputContainer}>
-                    <Lock color="#94A3B8" size={20} style={styles.inputIcon} />
+                {/* Password Input */}
+                <View style={[styles.inputContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <Lock color={theme.textMuted} size={20} />
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { color: theme.text }]}
                         placeholder="Password"
-                        placeholderTextColor="#94A3B8"
+                        placeholderTextColor={theme.textMuted}
                         value={password}
                         onChangeText={setPassword}
                         secureTextEntry={!showPassword}
-                        autoCapitalize="none"
                     />
-                    <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                        style={styles.eyeIcon}
-                    >
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                         {showPassword ? (
-                            <EyeOff color="#94A3B8" size={20} />
+                            <EyeOff color={theme.textMuted} size={20} />
                         ) : (
-                            <Eye color="#94A3B8" size={20} />
+                            <Eye color={theme.textMuted} size={20} />
                         )}
                     </TouchableOpacity>
                 </View>
 
+                {/* Login Button */}
                 <TouchableOpacity
-                    style={[styles.loginButton, (localLoading || isLoading) && styles.loginButtonDisabled]}
+                    style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
                     onPress={handleLogin}
-                    disabled={localLoading || isLoading}
+                    disabled={isLoading}
                 >
-                    {localLoading || isLoading ? (
-                        <ActivityIndicator color="#fff" />
+                    {isLoading ? (
+                        <Loader2 color="#fff" size={20} />
                     ) : (
                         <Text style={styles.loginButtonText}>Sign In</Text>
                     )}
                 </TouchableOpacity>
-            </View>
 
-            <View style={styles.footer}>
-                <View style={styles.offlineBadge}>
-                    <Text style={styles.offlineBadgeText}>Works Offline</Text>
+                {/* Web App Link */}
+                <View style={styles.webLinkContainer}>
+                    <Text style={[styles.webLinkText, { color: theme.textSecondary }]}>
+                        Don't have an account?{'\n'}New shops are onboarded via the web platform.
+                    </Text>
+                    <TouchableOpacity style={styles.webLinkButton} onPress={openWebApp}>
+                        <ExternalLink color={theme.primary} size={16} />
+                        <Text style={[styles.webLinkButtonText, { color: theme.primary }]}>
+                            Create Account on Web
+                        </Text>
+                    </TouchableOpacity>
                 </View>
-                <Text style={styles.footerText}>
-                    All features available without internet. Data syncs automatically when online.
-                </Text>
-            </View>
-        </KeyboardAvoidingView>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F8FAFC',
-        padding: 24,
-        justifyContent: 'center',
     },
-    header: {
-        alignItems: 'center',
-        marginBottom: 40,
+    content: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 24,
     },
     logoContainer: {
-        width: 80,
-        height: 80,
-        backgroundColor: '#EEF2FF',
-        borderRadius: 24,
+        width: 96,
+        height: 96,
+        borderRadius: 28,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 20,
+        alignSelf: 'center',
+        marginBottom: 24,
     },
     title: {
         fontSize: 28,
         fontWeight: '800',
-        color: '#0F172A',
-        letterSpacing: -0.5,
+        textAlign: 'center',
+        marginBottom: 8,
     },
     subtitle: {
         fontSize: 16,
-        color: '#64748B',
-        marginTop: 8,
+        textAlign: 'center',
+        marginBottom: 32,
     },
-    form: {
-        gap: 16,
+    offlineBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'center',
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+        marginBottom: 24,
+    },
+    offlineText: {
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    errorBox: {
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 16,
+    },
+    errorText: {
+        fontSize: 14,
+        fontWeight: '600',
+        textAlign: 'center',
     },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fff',
-        borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#E2E8F0',
+        borderRadius: 16,
         paddingHorizontal: 16,
-        height: 56,
-    },
-    inputIcon: {
-        marginRight: 12,
+        marginBottom: 16,
     },
     input: {
         flex: 1,
+        paddingVertical: 16,
+        paddingHorizontal: 12,
         fontSize: 16,
-        color: '#0F172A',
-        fontWeight: '600',
-    },
-    eyeIcon: {
-        padding: 8,
+        fontWeight: '500',
     },
     loginButton: {
         backgroundColor: '#4F46E5',
+        paddingVertical: 18,
         borderRadius: 16,
-        height: 56,
         alignItems: 'center',
-        justifyContent: 'center',
+        marginTop: 8,
         shadowColor: '#4F46E5',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.3,
         shadowRadius: 16,
         elevation: 8,
-        marginTop: 8,
     },
     loginButtonDisabled: {
         opacity: 0.7,
@@ -184,33 +228,28 @@ const styles = StyleSheet.create({
     loginButtonText: {
         color: '#fff',
         fontSize: 16,
-        fontWeight: '800',
-        letterSpacing: 1,
-        textTransform: 'uppercase',
+        fontWeight: '700',
     },
-    footer: {
-        marginTop: 40,
+    webLinkContainer: {
+        marginTop: 32,
         alignItems: 'center',
     },
-    offlineBadge: {
-        backgroundColor: '#ECFDF5',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
-        marginBottom: 12,
-    },
-    offlineBadgeText: {
-        color: '#059669',
-        fontSize: 12,
-        fontWeight: '800',
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-    },
-    footerText: {
-        color: '#94A3B8',
+    webLinkText: {
         fontSize: 14,
         textAlign: 'center',
-        lineHeight: 20,
+        lineHeight: 22,
+        marginBottom: 12,
+    },
+    webLinkButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+    },
+    webLinkButtonText: {
+        fontSize: 14,
+        fontWeight: '700',
     },
 });
 

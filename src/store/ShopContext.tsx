@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import {
     User, UserRole, Item, Category, Sale, SaleItem, PaymentMethod, SaleStatus,
-    POSWithdrawalFloat, POSWithdrawalTransaction, Restock, AppState, SyncStatus
+    POSWithdrawalFloat, POSWithdrawalTransaction, Restock, AppState, SyncStatus, InventoryLog
 } from '../types';
 import { supabase } from '../services/supabase';
 import { initDatabase, getDatabase, clearAllData } from '../database';
@@ -19,6 +19,7 @@ interface ShopContextType {
     sales: Sale[];
     posFloats: POSWithdrawalFloat[];
     posTransactions: POSWithdrawalTransaction[];
+    inventoryLogs: InventoryLog[];
     isLoading: boolean;
     error: string | null;
     appState: AppState;
@@ -30,6 +31,7 @@ interface ShopContextType {
     // Items
     addItem: (item: Partial<Item>) => Promise<void>;
     updateItem: (id: string, updates: Partial<Item>) => Promise<void>;
+    updateItemWithReason: (id: string, updates: Partial<Item>, reason: string) => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
 
     // Categories
@@ -57,6 +59,7 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [sales, setSales] = useState<Sale[]>([]);
     const [posFloats, setPosFloats] = useState<POSWithdrawalFloat[]>([]);
     const [posTransactions, setPosTransactions] = useState<POSWithdrawalTransaction[]>([]);
+    const [inventoryLogs, setInventoryLogs] = useState<InventoryLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [appState, setAppState] = useState<AppState>({
@@ -111,6 +114,14 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 customerName: t.customer_name, withdrawalAmount: t.withdrawal_amount,
                 serviceCharge: t.service_charge, totalPaid: t.total_paid, paymentMethod: t.payment_method,
                 createdBy: t.created_by, transactionDate: t.transaction_date, createdAt: t.created_at
+            })));
+
+            // Load inventory logs
+            const localLogs = await db.getAllAsync<any>('SELECT * FROM inventory_logs ORDER BY created_at DESC');
+            setInventoryLogs(localLogs.map((l: any) => ({
+                id: l.id, itemId: l.item_id, itemName: l.item_name, userId: l.user_id,
+                userName: l.user_name, changeType: l.change_type, fieldChanged: l.field_changed,
+                oldValue: l.old_value, newValue: l.new_value, reason: l.reason, createdAt: l.created_at
             })));
 
             // Update app state
@@ -289,6 +300,55 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (appState.isOnline) {
             await performFullSync((status) => setAppState(prev => ({ ...prev, syncStatus: status })));
         }
+    };
+
+    // Update Item With Reason (for salesperson - creates audit log)
+    const updateItemWithReason = async (id: string, updates: Partial<Item>, reason: string) => {
+        if (!currentUser) throw new Error('Not logged in');
+
+        const db = await getDatabase();
+        const now = new Date().toISOString();
+        const existingItem = items.find(i => i.id === id);
+        if (!existingItem) throw new Error('Item not found');
+
+        // Create audit log entries for each changed field
+        const logFields: { field: string; oldVal: string; newVal: string }[] = [];
+
+        if (updates.name && updates.name !== existingItem.name) {
+            logFields.push({ field: 'name', oldVal: existingItem.name, newVal: updates.name });
+        }
+        if (updates.sellingPrice !== undefined && updates.sellingPrice !== existingItem.sellingPrice) {
+            logFields.push({ field: 'sellingPrice', oldVal: String(existingItem.sellingPrice), newVal: String(updates.sellingPrice) });
+        }
+        if (updates.costPrice !== undefined && updates.costPrice !== existingItem.costPrice) {
+            logFields.push({ field: 'costPrice', oldVal: String(existingItem.costPrice), newVal: String(updates.costPrice) });
+        }
+        if (updates.quantityInStock !== undefined && updates.quantityInStock !== existingItem.quantityInStock) {
+            logFields.push({ field: 'quantityInStock', oldVal: String(existingItem.quantityInStock), newVal: String(updates.quantityInStock) });
+        }
+        if (updates.reorderLevel !== undefined && updates.reorderLevel !== existingItem.reorderLevel) {
+            logFields.push({ field: 'reorderLevel', oldVal: String(existingItem.reorderLevel), newVal: String(updates.reorderLevel) });
+        }
+
+        // Insert audit logs
+        for (const log of logFields) {
+            const logId = generateUUID();
+            await db.runAsync(
+                `INSERT INTO inventory_logs (id, item_id, item_name, user_id, user_name, change_type, 
+                 field_changed, old_value, new_value, reason, created_at, is_synced, pending_operation)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'create')`,
+                [logId, id, existingItem.name, currentUser.id, currentUser.fullName, 'update',
+                    log.field, log.oldVal, log.newVal, reason, now]
+            );
+            await addToSyncQueue('create', 'inventory_logs', logId, {
+                id: logId, item_id: id, item_name: existingItem.name, user_id: currentUser.id,
+                user_name: currentUser.fullName, change_type: 'update', field_changed: log.field,
+                old_value: log.oldVal, new_value: log.newVal, reason, created_at: now
+            });
+        }
+
+        // Perform the actual update
+        await updateItem(id, updates);
     };
 
     // Delete Item
@@ -488,8 +548,9 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return (
         <ShopContext.Provider value={{
             currentUser, shopName, items, categories, sales, posFloats, posTransactions,
-            isLoading, error, appState, login, logout, addItem, updateItem, deleteItem,
-            addCategory, addSale, startPOSFloat, addPOSTransaction, syncNow, clearError
+            inventoryLogs, isLoading, error, appState, login, logout, addItem, updateItem,
+            updateItemWithReason, deleteItem, addCategory, addSale, startPOSFloat,
+            addPOSTransaction, syncNow, clearError
         }}>
             {children}
         </ShopContext.Provider>

@@ -1,22 +1,24 @@
-// Inventory Screen - View and manage products (works offline)
+// Inventory Screen with Reason Modal for Salesperson Edits
 import React, { useState, useMemo } from 'react';
 import {
     View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet,
     Modal, Alert, RefreshControl
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShop } from '../store/ShopContext';
+import { useTheme } from '../store/ThemeContext';
 import { UserRole, Item } from '../types';
 import { formatCurrency } from '../utils';
-import {
-    Search, Plus, Package, Edit2, Scissors, X, Save, Loader2, AlertTriangle
-} from 'lucide-react-native';
+import { Search, Plus, Package, Edit2, Scissors, X, Save, Loader2, AlertTriangle } from 'lucide-react-native';
 import SyncIndicator from '../components/SyncIndicator';
+import ReasonModal from '../components/ReasonModal';
 
 const InventoryScreen: React.FC = () => {
     const {
-        currentUser, items, categories, shopName,
-        addItem, updateItem, syncNow, isLoading
+        currentUser, items, categories, addItem, updateItem,
+        updateItemWithReason, syncNow, isLoading
     } = useShop();
+    const { theme } = useTheme();
 
     const isAdmin = currentUser?.role === UserRole.ADMIN;
     const [searchTerm, setSearchTerm] = useState('');
@@ -24,7 +26,9 @@ const InventoryScreen: React.FC = () => {
     const [selectedItem, setSelectedItem] = useState<Item | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [showReasonModal, setShowReasonModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [pendingUpdates, setPendingUpdates] = useState<Partial<Item> | null>(null);
 
     const [formData, setFormData] = useState({
         name: '',
@@ -80,6 +84,15 @@ const InventoryScreen: React.FC = () => {
             return;
         }
 
+        // For salesperson editing, require reason
+        if (isEditMode && !isAdmin && selectedItem) {
+            setPendingUpdates(formData);
+            setIsModalOpen(false);
+            setShowReasonModal(true);
+            return;
+        }
+
+        // Admin or new item - save directly
         setIsSaving(true);
         try {
             if (isEditMode && selectedItem) {
@@ -96,32 +109,49 @@ const InventoryScreen: React.FC = () => {
         }
     };
 
+    const handleSaveWithReason = async (reason: string) => {
+        if (!selectedItem || !pendingUpdates) return;
+
+        setIsSaving(true);
+        try {
+            await updateItemWithReason(selectedItem.id, pendingUpdates, reason);
+            setShowReasonModal(false);
+            setPendingUpdates(null);
+            setSelectedItem(null);
+            Alert.alert('Success', 'Changes saved with audit log');
+        } catch (err: any) {
+            Alert.alert('Error', err.message || 'Failed to save');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     return (
-        <View style={styles.container}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
             <SyncIndicator />
 
             {/* Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.headerTitle}>Inventory</Text>
-                    <Text style={styles.headerSubtitle}>
+                    <Text style={[styles.headerTitle, { color: theme.text }]}>Inventory</Text>
+                    <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
                         {items.length} products • {lowStockItems.length} low stock
                     </Text>
                 </View>
                 {isAdmin && (
-                    <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+                    <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.primary }]} onPress={openAddModal}>
                         <Plus color="#fff" size={20} />
                     </TouchableOpacity>
                 )}
             </View>
 
             {/* Search & Filter */}
-            <View style={styles.searchContainer}>
-                <Search color="#94A3B8" size={20} />
+            <View style={[styles.searchContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Search color={theme.textMuted} size={20} />
                 <TextInput
-                    style={styles.searchInput}
+                    style={[styles.searchInput, { color: theme.text }]}
                     placeholder="Search products..."
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor={theme.textMuted}
                     value={searchTerm}
                     onChangeText={setSearchTerm}
                 />
@@ -135,20 +165,20 @@ const InventoryScreen: React.FC = () => {
                 contentContainerStyle={styles.filterContainer}
             >
                 <TouchableOpacity
-                    style={[styles.filterChip, categoryFilter === 'all' && styles.filterChipActive]}
+                    style={[styles.filterChip, { backgroundColor: categoryFilter === 'all' ? theme.primary : theme.surfaceAlt }]}
                     onPress={() => setCategoryFilter('all')}
                 >
-                    <Text style={[styles.filterChipText, categoryFilter === 'all' && styles.filterChipTextActive]}>
+                    <Text style={[styles.filterChipText, { color: categoryFilter === 'all' ? '#fff' : theme.textSecondary }]}>
                         All
                     </Text>
                 </TouchableOpacity>
                 {categories.map(cat => (
                     <TouchableOpacity
                         key={cat.id}
-                        style={[styles.filterChip, categoryFilter === cat.id && styles.filterChipActive]}
+                        style={[styles.filterChip, { backgroundColor: categoryFilter === cat.id ? theme.primary : theme.surfaceAlt }]}
                         onPress={() => setCategoryFilter(cat.id)}
                     >
-                        <Text style={[styles.filterChipText, categoryFilter === cat.id && styles.filterChipTextActive]}>
+                        <Text style={[styles.filterChipText, { color: categoryFilter === cat.id ? '#fff' : theme.textSecondary }]}>
                             {cat.name}
                         </Text>
                     </TouchableOpacity>
@@ -158,40 +188,40 @@ const InventoryScreen: React.FC = () => {
             {/* Product List */}
             <ScrollView
                 style={styles.list}
-                refreshControl={<RefreshControl refreshing={isLoading} onRefresh={syncNow} />}
+                refreshControl={<RefreshControl refreshing={isLoading} onRefresh={syncNow} tintColor={theme.primary} />}
             >
                 {filteredItems.map(item => (
                     <TouchableOpacity
                         key={item.id}
-                        style={styles.productCard}
-                        onPress={() => isAdmin ? openEditModal(item) : null}
+                        style={[styles.productCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        onPress={() => openEditModal(item)}
                     >
                         <View style={styles.productInfo}>
                             <View style={styles.productHeader}>
-                                <Text style={styles.productName}>{item.name}</Text>
-                                {item.allowFractional && <Scissors color="#818CF8" size={14} />}
+                                <Text style={[styles.productName, { color: theme.text }]}>{item.name}</Text>
+                                {item.allowFractional && <Scissors color={theme.primary} size={14} />}
                                 {item.quantityInStock <= item.reorderLevel && (
-                                    <AlertTriangle color="#DC2626" size={14} />
+                                    <AlertTriangle color={theme.danger} size={14} />
                                 )}
                             </View>
-                            <Text style={styles.productSku}>{item.sku}</Text>
+                            <Text style={[styles.productSku, { color: theme.textMuted }]}>{item.sku}</Text>
                         </View>
                         <View style={styles.productMeta}>
                             <Text style={[
                                 styles.productStock,
-                                item.quantityInStock <= item.reorderLevel && styles.productStockLow
+                                { color: item.quantityInStock <= item.reorderLevel ? theme.danger : theme.text }
                             ]}>
                                 {item.quantityInStock} {item.unit}
                             </Text>
-                            <Text style={styles.productPrice}>{formatCurrency(item.sellingPrice)}</Text>
+                            <Text style={[styles.productPrice, { color: theme.primary }]}>{formatCurrency(item.sellingPrice)}</Text>
                         </View>
                     </TouchableOpacity>
                 ))}
 
                 {filteredItems.length === 0 && (
                     <View style={styles.emptyState}>
-                        <Package color="#CBD5E1" size={48} />
-                        <Text style={styles.emptyStateText}>No products found</Text>
+                        <Package color={theme.textMuted} size={48} />
+                        <Text style={[styles.emptyStateText, { color: theme.textSecondary }]}>No products found</Text>
                     </View>
                 )}
 
@@ -201,107 +231,84 @@ const InventoryScreen: React.FC = () => {
             {/* Add/Edit Modal */}
             <Modal visible={isModalOpen} animationType="slide" transparent>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+                            <Text style={[styles.modalTitle, { color: theme.text }]}>
                                 {isEditMode ? 'Edit Product' : 'Add Product'}
                             </Text>
                             <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-                                <X color="#64748B" size={24} />
+                                <X color={theme.textMuted} size={24} />
                             </TouchableOpacity>
                         </View>
 
                         <ScrollView style={styles.modalForm}>
-                            <Text style={styles.inputLabel}>Product Name</Text>
+                            <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Product Name</Text>
                             <TextInput
-                                style={styles.textInput}
+                                style={[styles.textInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text }]}
                                 value={formData.name}
                                 onChangeText={(t) => setFormData({ ...formData, name: t })}
                                 placeholder="Enter product name"
-                                placeholderTextColor="#94A3B8"
+                                placeholderTextColor={theme.textMuted}
                             />
 
                             <View style={styles.row}>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.inputLabel}>Selling Price (₦)</Text>
+                                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Selling Price (₦)</Text>
                                     <TextInput
-                                        style={styles.textInput}
+                                        style={[styles.textInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text }]}
                                         value={formData.sellingPrice.toString()}
                                         onChangeText={(t) => setFormData({ ...formData, sellingPrice: Number(t) || 0 })}
                                         keyboardType="numeric"
-                                        placeholder="0"
                                     />
                                 </View>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.inputLabel}>Cost Price (₦)</Text>
+                                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Cost Price (₦)</Text>
                                     <TextInput
-                                        style={styles.textInput}
+                                        style={[styles.textInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text }]}
                                         value={formData.costPrice.toString()}
                                         onChangeText={(t) => setFormData({ ...formData, costPrice: Number(t) || 0 })}
                                         keyboardType="numeric"
-                                        placeholder="0"
                                     />
                                 </View>
                             </View>
 
                             <View style={styles.row}>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.inputLabel}>Stock Level</Text>
+                                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Stock Level</Text>
                                     <TextInput
-                                        style={styles.textInput}
+                                        style={[styles.textInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text }]}
                                         value={formData.quantityInStock.toString()}
                                         onChangeText={(t) => setFormData({ ...formData, quantityInStock: Number(t) || 0 })}
                                         keyboardType="numeric"
-                                        placeholder="0"
                                     />
                                 </View>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.inputLabel}>Reorder Level</Text>
+                                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>Reorder Level</Text>
                                     <TextInput
-                                        style={styles.textInput}
+                                        style={[styles.textInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text }]}
                                         value={formData.reorderLevel.toString()}
                                         onChangeText={(t) => setFormData({ ...formData, reorderLevel: Number(t) || 0 })}
                                         keyboardType="numeric"
-                                        placeholder="5"
                                     />
                                 </View>
                             </View>
 
-                            <Text style={styles.inputLabel}>Unit</Text>
-                            <TextInput
-                                style={styles.textInput}
-                                value={formData.unit}
-                                onChangeText={(t) => setFormData({ ...formData, unit: t })}
-                                placeholder="pcs"
-                            />
-
-                            {/* Fractional Toggle */}
-                            <View style={styles.toggleRow}>
-                                <View style={styles.toggleInfo}>
-                                    <Scissors color="#4F46E5" size={20} />
-                                    <View>
-                                        <Text style={styles.toggleLabel}>Fractional Selling</Text>
-                                        <Text style={styles.toggleDesc}>Allow sales of portions (1/2, 1/4)</Text>
-                                    </View>
+                            {/* Salesperson Notice */}
+                            {isEditMode && !isAdmin && (
+                                <View style={[styles.noticeBox, { backgroundColor: theme.warningLight }]}>
+                                    <AlertTriangle color={theme.warning} size={16} />
+                                    <Text style={[styles.noticeText, { color: theme.warning }]}>
+                                        You'll need to provide a reason for any changes
+                                    </Text>
                                 </View>
-                                <TouchableOpacity
-                                    style={[styles.toggle, formData.allowFractional && styles.toggleActive]}
-                                    onPress={() => setFormData({ ...formData, allowFractional: !formData.allowFractional })}
-                                >
-                                    <View style={[styles.toggleKnob, formData.allowFractional && styles.toggleKnobActive]} />
-                                </TouchableOpacity>
-                            </View>
+                            )}
 
                             <TouchableOpacity
                                 style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
                                 onPress={handleSave}
                                 disabled={isSaving}
                             >
-                                {isSaving ? (
-                                    <Loader2 color="#fff" size={20} />
-                                ) : (
-                                    <Save color="#fff" size={20} />
-                                )}
+                                {isSaving ? <Loader2 color="#fff" size={20} /> : <Save color="#fff" size={20} />}
                                 <Text style={styles.saveButtonText}>
                                     {isEditMode ? 'Update Product' : 'Save Product'}
                                 </Text>
@@ -310,276 +317,55 @@ const InventoryScreen: React.FC = () => {
                     </View>
                 </View>
             </Modal>
-        </View>
+
+            {/* Reason Modal for Salesperson Edits */}
+            <ReasonModal
+                visible={showReasonModal}
+                onClose={() => { setShowReasonModal(false); setPendingUpdates(null); }}
+                onSubmit={handleSaveWithReason}
+                isLoading={isSaving}
+            />
+        </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#F8FAFC',
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 16,
-    },
-    headerTitle: {
-        fontSize: 24,
-        fontWeight: '800',
-        color: '#0F172A',
-    },
-    headerSubtitle: {
-        fontSize: 14,
-        color: '#64748B',
-        marginTop: 2,
-    },
-    addButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 16,
-        backgroundColor: '#4F46E5',
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#4F46E5',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    searchContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        marginHorizontal: 20,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-    },
-    searchInput: {
-        flex: 1,
-        paddingVertical: 14,
-        paddingHorizontal: 12,
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#0F172A',
-    },
-    filterScroll: {
-        marginVertical: 16,
-    },
-    filterContainer: {
-        paddingHorizontal: 20,
-        gap: 8,
-    },
-    filterChip: {
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
-        backgroundColor: '#F1F5F9',
-        marginRight: 8,
-    },
-    filterChipActive: {
-        backgroundColor: '#4F46E5',
-    },
-    filterChipText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#64748B',
-    },
-    filterChipTextActive: {
-        color: '#fff',
-    },
-    list: {
-        flex: 1,
-        paddingHorizontal: 20,
-    },
-    productCard: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        padding: 16,
-        borderRadius: 16,
-        marginBottom: 8,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-    },
-    productInfo: {
-        flex: 1,
-    },
-    productHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    productName: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#0F172A',
-    },
-    productSku: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: '#94A3B8',
-        textTransform: 'uppercase',
-        marginTop: 4,
-    },
-    productMeta: {
-        alignItems: 'flex-end',
-    },
-    productStock: {
-        fontSize: 14,
-        fontWeight: '800',
-        color: '#0F172A',
-    },
-    productStockLow: {
-        color: '#DC2626',
-    },
-    productPrice: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#4F46E5',
-        marginTop: 2,
-    },
-    emptyState: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 60,
-    },
-    emptyStateText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#94A3B8',
-        marginTop: 16,
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(15, 23, 42, 0.6)',
-        justifyContent: 'flex-end',
-    },
-    modalContent: {
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 32,
-        borderTopRightRadius: 32,
-        maxHeight: '90%',
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 24,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E2E8F0',
-    },
-    modalTitle: {
-        fontSize: 20,
-        fontWeight: '800',
-        color: '#0F172A',
-    },
-    modalForm: {
-        padding: 24,
-    },
-    inputLabel: {
-        fontSize: 10,
-        fontWeight: '800',
-        color: '#94A3B8',
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-        marginBottom: 8,
-        marginTop: 16,
-    },
-    textInput: {
-        backgroundColor: '#F8FAFC',
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#0F172A',
-    },
-    row: {
-        flexDirection: 'row',
-        gap: 12,
-    },
-    halfInput: {
-        flex: 1,
-    },
-    toggleRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: '#F8FAFC',
-        padding: 16,
-        borderRadius: 16,
-        marginTop: 24,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-    },
-    toggleInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    toggleLabel: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#0F172A',
-    },
-    toggleDesc: {
-        fontSize: 11,
-        color: '#64748B',
-        marginTop: 2,
-    },
-    toggle: {
-        width: 52,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: '#CBD5E1',
-        padding: 3,
-    },
-    toggleActive: {
-        backgroundColor: '#4F46E5',
-    },
-    toggleKnob: {
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        backgroundColor: '#fff',
-    },
-    toggleKnobActive: {
-        transform: [{ translateX: 24 }],
-    },
-    saveButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#4F46E5',
-        paddingVertical: 18,
-        borderRadius: 18,
-        marginTop: 32,
-        marginBottom: 40,
-        gap: 10,
-        shadowColor: '#4F46E5',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 16,
-        elevation: 8,
-    },
-    saveButtonDisabled: {
-        opacity: 0.7,
-    },
-    saveButtonText: {
-        fontSize: 12,
-        fontWeight: '800',
-        color: '#fff',
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-    },
+    container: { flex: 1 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16 },
+    headerTitle: { fontSize: 24, fontWeight: '800' },
+    headerSubtitle: { fontSize: 14, marginTop: 2 },
+    addButton: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, paddingHorizontal: 16, marginHorizontal: 20, borderWidth: 1 },
+    searchInput: { flex: 1, paddingVertical: 14, paddingHorizontal: 12, fontSize: 16, fontWeight: '600' },
+    filterScroll: { marginVertical: 16 },
+    filterContainer: { paddingHorizontal: 20, gap: 8 },
+    filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 8 },
+    filterChipText: { fontSize: 12, fontWeight: '700' },
+    list: { flex: 1, paddingHorizontal: 20 },
+    productCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 16, marginBottom: 8, borderWidth: 1 },
+    productInfo: { flex: 1 },
+    productHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    productName: { fontSize: 14, fontWeight: '700' },
+    productSku: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginTop: 4 },
+    productMeta: { alignItems: 'flex-end' },
+    productStock: { fontSize: 14, fontWeight: '800' },
+    productPrice: { fontSize: 12, fontWeight: '700', marginTop: 2 },
+    emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+    emptyStateText: { fontSize: 14, fontWeight: '600', marginTop: 16 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end' },
+    modalContent: { borderTopLeftRadius: 32, borderTopRightRadius: 32, maxHeight: '90%' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, borderBottomWidth: 1 },
+    modalTitle: { fontSize: 20, fontWeight: '800' },
+    modalForm: { padding: 24 },
+    inputLabel: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginTop: 16 },
+    textInput: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, fontWeight: '600' },
+    row: { flexDirection: 'row', gap: 12 },
+    halfInput: { flex: 1 },
+    noticeBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, marginTop: 20 },
+    noticeText: { fontSize: 13, fontWeight: '600', flex: 1 },
+    saveButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#4F46E5', paddingVertical: 18, borderRadius: 18, marginTop: 32, marginBottom: 40, gap: 10 },
+    saveButtonDisabled: { opacity: 0.7 },
+    saveButtonText: { fontSize: 12, fontWeight: '800', color: '#fff', textTransform: 'uppercase', letterSpacing: 1 },
 });
 
 export default InventoryScreen;
