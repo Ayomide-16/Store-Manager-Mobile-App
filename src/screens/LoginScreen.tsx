@@ -9,7 +9,7 @@ import { useShop } from '../store/ShopContext';
 import { useTheme } from '../store/ThemeContext';
 import { Store, Mail, Lock, Eye, EyeOff, Loader2, Wifi, ExternalLink } from 'lucide-react-native';
 
-const WEB_APP_URL = 'https://naijashop-manager.vercel.app';
+const WEB_APP_URL = 'https://str-manager.vercel.app/';
 
 const LoginScreen: React.FC = () => {
     const { login, appState } = useShop();
