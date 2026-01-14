@@ -1,6 +1,7 @@
 // Main Navigation with Sales History, Settings, and Audit Log
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -36,6 +37,7 @@ const MoreScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     const isAdmin = currentUser?.role === UserRole.ADMIN;
 
     const menuItems = [
+        { name: 'POS Withdrawals', screen: 'POSWithdrawals', icon: Banknote, color: '#10B981', adminOnly: false },
         { name: 'Restocks', screen: 'RestocksStack', icon: Truck, color: '#059669', adminOnly: false },
         { name: 'Reports', screen: 'ReportsStack', icon: BarChart3, color: '#2563EB', adminOnly: true },
         { name: 'Reconciliation', screen: 'ReconciliationStack', icon: Calculator, color: '#7C3AED', adminOnly: true },
@@ -45,7 +47,7 @@ const MoreScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     ];
 
     return (
-        <View style={[styles.moreContainer, { backgroundColor: theme.background }]}>
+        <SafeAreaView style={[styles.moreContainer, { backgroundColor: theme.background }]} edges={['top']}>
             <Text style={[styles.moreTitle, { color: theme.text }]}>More Options</Text>
 
             {menuItems.map((item, idx) => {
@@ -64,7 +66,7 @@ const MoreScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                     </TouchableOpacity>
                 );
             })}
-        </View>
+        </SafeAreaView>
     );
 };
 

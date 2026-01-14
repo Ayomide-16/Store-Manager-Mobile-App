@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
     searchInput: { flex: 1, paddingVertical: 14, paddingHorizontal: 12, fontSize: 16, fontWeight: '600' },
     filterScroll: { marginVertical: 16 },
     filterContainer: { paddingHorizontal: 20, gap: 8 },
-    filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 8 },
+    filterChip: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16, marginRight: 8 },
     filterChipText: { fontSize: 12, fontWeight: '700' },
     list: { flex: 1, paddingHorizontal: 20 },
     productCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 16, marginBottom: 8, borderWidth: 1 },
