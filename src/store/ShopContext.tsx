@@ -404,19 +404,6 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             subtotal += lineTotal;
             totalCost += item.costPrice * cartItem.quantity;
 
-            saleItems.push({
-                id: generateUUID(),
-                sale_id: saleId,
-                item_id: item.id,
-                item_name: item.name,
-                quantity: cartItem.quantity,
-                unit_price: item.sellingPrice,
-                cost_price: item.costPrice,
-                line_total: lineTotal,
-                profit_margin: ((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100,
-                created_at: now
-            });
-
             // Update local inventory
             const newStock = item.quantityInStock - cartItem.quantity;
             saleItems.push({
