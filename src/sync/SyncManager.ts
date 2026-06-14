@@ -85,14 +85,14 @@ export const pushChanges = async (): Promise<{ success: boolean; error?: string 
                     if (error) throw error;
                 }
 
-                // Remove from sync queue on success
-                await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [item.id]);
-
-                // Mark local record as synced
-                await db.runAsync(
-                    `UPDATE ${tableName} SET is_synced = 1, pending_operation = NULL WHERE id = ?`,
-                    [item.record_id]
-                );
+                // Remove from sync queue on success and mark as synced in a transaction
+                await db.withTransactionAsync(async () => {
+                    await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [item.id]);
+                    await db.runAsync(
+                        `UPDATE ${tableName} SET is_synced = 1, pending_operation = NULL WHERE id = ?`,
+                        [item.record_id]
+                    );
+                });
             } catch (err: any) {
                 console.error(`Sync error for ${tableName}:`, err);
                 // Increment retry count
@@ -112,81 +112,162 @@ export const pushChanges = async (): Promise<{ success: boolean; error?: string 
 // Pull changes from Supabase to local database
 export const pullChanges = async (): Promise<{ success: boolean; error?: string }> => {
     const db = await getDatabase();
+    const lastSync = await getLastSyncTime();
 
     try {
-        // Pull items
-        const { data: items, error: itemsErr } = await supabase.from('items').select('*');
-        if (!itemsErr && items) {
-            for (const item of items) {
-                await db.runAsync(
-                    `INSERT OR REPLACE INTO items 
+        // 1. Users
+        let usersQuery = supabase.from('users').select('*');
+        if (lastSync) usersQuery = usersQuery.gt('created_at', lastSync);
+        const { data: users, error: usersErr } = await usersQuery;
+        if (!usersErr && users && users.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const user of users) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO users (id, email, full_name, role, created_at) VALUES (?, ?, ?, ?, ?)`,
+                        [user.id, user.email, user.full_name, user.role, user.created_at]
+                    );
+                }
+            });
+        }
+
+        // 2. Categories
+        let catQuery = supabase.from('categories').select('*');
+        if (lastSync) catQuery = catQuery.gt('created_at', lastSync);
+        const { data: categories, error: catErr } = await catQuery;
+        if (!catErr && categories && categories.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const cat of categories) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO categories (id, name, created_at, is_synced) VALUES (?, ?, ?, 1)`,
+                        [cat.id, cat.name, cat.created_at]
+                    );
+                }
+            });
+        }
+
+        // 3. Items
+        let itemsQuery = supabase.from('items').select('*');
+        if (lastSync) itemsQuery = itemsQuery.gt('updated_at', lastSync);
+        const { data: items, error: itemsErr } = await itemsQuery;
+        if (!itemsErr && items && items.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const item of items) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO items 
            (id, name, sku, category_id, unit, cost_price, selling_price, quantity_in_stock, 
             reorder_level, allow_fractional, created_at, updated_at, is_synced)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-                    [item.id, item.name, item.sku, item.category_id, item.unit, item.cost_price,
-                    item.selling_price, item.quantity_in_stock, item.reorder_level,
-                    item.allow_fractional ? 1 : 0, item.created_at, item.updated_at]
-                );
-            }
+                        [item.id, item.name, item.sku, item.category_id, item.unit, item.cost_price,
+                        item.selling_price, item.quantity_in_stock, item.reorder_level,
+                        item.allow_fractional ? 1 : 0, item.created_at, item.updated_at]
+                    );
+                }
+            });
         }
 
-        // Pull categories
-        const { data: categories, error: catErr } = await supabase.from('categories').select('*');
-        if (!catErr && categories) {
-            for (const cat of categories) {
-                await db.runAsync(
-                    `INSERT OR REPLACE INTO categories (id, name, created_at, is_synced) VALUES (?, ?, ?, 1)`,
-                    [cat.id, cat.name, cat.created_at]
-                );
-            }
-        }
-
-        // Pull sales
-        const { data: sales, error: salesErr } = await supabase.from('sales').select('*');
-        if (!salesErr && sales) {
-            for (const sale of sales) {
-                await db.runAsync(
-                    `INSERT OR REPLACE INTO sales 
+        // 4. Sales
+        let salesQuery = supabase.from('sales').select('*');
+        if (lastSync) salesQuery = salesQuery.gt('updated_at', lastSync);
+        const { data: sales, error: salesErr } = await salesQuery;
+        if (!salesErr && sales && sales.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const sale of sales) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO sales 
            (id, sale_number, status, subtotal, additional_charges, total_amount, profit_amount,
             payment_method, created_by, sale_date, created_at, updated_at, return_reason, is_synced)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-                    [sale.id, sale.sale_number, sale.status, sale.subtotal, sale.additional_charges,
-                    sale.total_amount, sale.profit_amount, sale.payment_method, sale.created_by,
-                    sale.sale_date, sale.created_at, sale.updated_at, sale.return_reason]
-                );
-            }
+                        [sale.id, sale.sale_number, sale.status, sale.subtotal, sale.additional_charges,
+                        sale.total_amount, sale.profit_amount, sale.payment_method, sale.created_by,
+                        sale.sale_date, sale.created_at, sale.updated_at, sale.return_reason]
+                    );
+                }
+            });
         }
 
-        // Pull POS floats
-        const { data: floats, error: floatsErr } = await supabase.from('pos_floats').select('*');
-        if (!floatsErr && floats) {
-            for (const f of floats) {
-                await db.runAsync(
-                    `INSERT OR REPLACE INTO pos_floats 
+        // 5. Sale Items
+        let saleItemsQuery = supabase.from('sale_items').select('*');
+        if (lastSync) saleItemsQuery = saleItemsQuery.gt('created_at', lastSync);
+        const { data: saleItems, error: saleItemsErr } = await saleItemsQuery;
+        if (!saleItemsErr && saleItems && saleItems.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const si of saleItems) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO sale_items (id, sale_id, item_id, item_name, quantity, unit_price, cost_price, line_total, profit_margin, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+                        [si.id, si.sale_id, si.item_id, si.item_name, si.quantity, si.unit_price, si.cost_price, si.line_total, si.profit_margin, si.created_at]
+                    );
+                }
+            });
+        }
+
+        // 6. POS Floats
+        let floatsQuery = supabase.from('pos_floats').select('*');
+        if (lastSync) floatsQuery = floatsQuery.gt('updated_at', lastSync);
+        const { data: floats, error: floatsErr } = await floatsQuery;
+        if (!floatsErr && floats && floats.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const f of floats) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO pos_floats 
            (id, date, opening_balance, current_balance, closing_balance, total_withdrawals_processed,
             total_charges_earned, status, created_by, created_at, updated_at, is_synced)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-                    [f.id, f.date, f.opening_balance, f.current_balance, f.closing_balance,
-                    f.total_withdrawals_processed, f.total_charges_earned, f.status,
-                    f.created_by, f.created_at, f.updated_at]
-                );
-            }
+                        [f.id, f.date, f.opening_balance, f.current_balance, f.closing_balance,
+                        f.total_withdrawals_processed, f.total_charges_earned, f.status,
+                        f.created_by, f.created_at, f.updated_at]
+                    );
+                }
+            });
         }
 
-        // Pull POS transactions
-        const { data: posTxs, error: posTxsErr } = await supabase.from('pos_transactions').select('*');
-        if (!posTxsErr && posTxs) {
-            for (const tx of posTxs) {
-                await db.runAsync(
-                    `INSERT OR REPLACE INTO pos_transactions 
+        // 7. POS Transactions
+        let posTxsQuery = supabase.from('pos_transactions').select('*');
+        if (lastSync) posTxsQuery = posTxsQuery.gt('created_at', lastSync);
+        const { data: posTxs, error: posTxsErr } = await posTxsQuery;
+        if (!posTxsErr && posTxs && posTxs.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const tx of posTxs) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO pos_transactions 
            (id, float_id, transaction_number, customer_name, withdrawal_amount, service_charge,
             total_paid, payment_method, created_by, transaction_date, created_at, is_synced)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-                    [tx.id, tx.float_id, tx.transaction_number, tx.customer_name, tx.withdrawal_amount,
-                    tx.service_charge, tx.total_paid, tx.payment_method, tx.created_by,
-                    tx.transaction_date, tx.created_at]
-                );
-            }
+                        [tx.id, tx.float_id, tx.transaction_number, tx.customer_name, tx.withdrawal_amount,
+                        tx.service_charge, tx.total_paid, tx.payment_method, tx.created_by,
+                        tx.transaction_date, tx.created_at]
+                    );
+                }
+            });
+        }
+
+        // 8. Restocks
+        let restocksQuery = supabase.from('restocks').select('*');
+        if (lastSync) restocksQuery = restocksQuery.gt('created_at', lastSync);
+        const { data: restocks, error: restocksErr } = await restocksQuery;
+        if (!restocksErr && restocks && restocks.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const r of restocks) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO restocks (id, supplier_name, restock_date, total_amount, notes, created_by, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+                        [r.id, r.supplier_name, r.restock_date, r.total_amount, r.notes, r.created_by, r.created_at]
+                    );
+                }
+            });
+        }
+
+        // 9. Restock Items
+        let restockItemsQuery = supabase.from('restock_items').select('*');
+        if (lastSync) restockItemsQuery = restockItemsQuery.gt('created_at', lastSync);
+        const { data: restockItems, error: restockItemsErr } = await restockItemsQuery;
+        if (!restockItemsErr && restockItems && restockItems.length > 0) {
+            await db.withTransactionAsync(async () => {
+                for (const ri of restockItems) {
+                    await db.runAsync(
+                        `INSERT OR REPLACE INTO restock_items (id, restock_id, item_id, quantity, unit_cost, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+                        [ri.id, ri.restock_id, ri.item_id, ri.quantity, ri.unit_cost, ri.created_at]
+                    );
+                }
+            });
         }
 
         return { success: true };

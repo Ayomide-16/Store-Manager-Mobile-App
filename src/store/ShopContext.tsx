@@ -89,8 +89,8 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const localCategories = await db.getAllAsync<any>('SELECT * FROM categories ORDER BY name');
             setCategories(localCategories.map((c: any) => ({ id: c.id, name: c.name, createdAt: c.created_at })));
 
-            // Load sales
-            const localSales = await db.getAllAsync<any>('SELECT * FROM sales ORDER BY created_at DESC');
+            // Load sales (last 30 days)
+            const localSales = await db.getAllAsync<any>("SELECT * FROM sales WHERE created_at >= date('now', '-30 days') ORDER BY created_at DESC");
             setSales(localSales.map((s: any) => ({
                 id: s.id, saleNumber: s.sale_number, status: s.status, subtotal: s.subtotal,
                 additionalCharges: s.additional_charges, totalAmount: s.total_amount, profitAmount: s.profit_amount,
@@ -107,8 +107,8 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 createdAt: f.created_at, updatedAt: f.updated_at
             })));
 
-            // Load POS transactions
-            const localTxs = await db.getAllAsync<any>('SELECT * FROM pos_transactions ORDER BY created_at DESC');
+            // Load POS transactions (last 30 days)
+            const localTxs = await db.getAllAsync<any>("SELECT * FROM pos_transactions WHERE created_at >= date('now', '-30 days') ORDER BY created_at DESC");
             setPosTransactions(localTxs.map((t: any) => ({
                 id: t.id, floatId: t.float_id, transactionNumber: t.transaction_number,
                 customerName: t.customer_name, withdrawalAmount: t.withdrawal_amount,
@@ -116,8 +116,8 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 createdBy: t.created_by, transactionDate: t.transaction_date, createdAt: t.created_at
             })));
 
-            // Load inventory logs
-            const localLogs = await db.getAllAsync<any>('SELECT * FROM inventory_logs ORDER BY created_at DESC');
+            // Load inventory logs (last 30 days)
+            const localLogs = await db.getAllAsync<any>("SELECT * FROM inventory_logs WHERE created_at >= date('now', '-30 days') ORDER BY created_at DESC");
             setInventoryLogs(localLogs.map((l: any) => ({
                 id: l.id, itemId: l.item_id, itemName: l.item_name, userId: l.user_id,
                 userName: l.user_name, changeType: l.change_type, fieldChanged: l.field_changed,
@@ -245,7 +245,7 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const now = new Date().toISOString();
 
         const newItem = {
-            id, name: item.name, sku, category_id: item.categoryId, unit: item.unit || 'pcs',
+            id, name: item.name || '', sku, category_id: item.categoryId || null, unit: item.unit || 'pcs',
             cost_price: item.costPrice || 0, selling_price: item.sellingPrice || 0,
             quantity_in_stock: item.quantityInStock || 0, reorder_level: item.reorderLevel || 5,
             allow_fractional: item.allowFractional ? 1 : 0, created_at: now, updated_at: now
@@ -291,7 +291,7 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const setClauses = Object.keys(dbUpdates).map(k => `${k} = ?`).join(', ');
         await db.runAsync(
             `UPDATE items SET ${setClauses}, is_synced = 0, pending_operation = 'update' WHERE id = ?`,
-            [...Object.values(dbUpdates), id]
+            [...(Object.values(dbUpdates) as (string | number | null)[]), id]
         );
 
         await addToSyncQueue('update', 'items', id, dbUpdates);
@@ -419,11 +419,19 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
             // Update local inventory
             const newStock = item.quantityInStock - cartItem.quantity;
-            await db.runAsync(
-                `UPDATE items SET quantity_in_stock = ?, updated_at = ?, is_synced = 0, pending_operation = 'update' WHERE id = ?`,
-                [newStock, now, item.id]
-            );
-            await addToSyncQueue('update', 'items', item.id, { quantity_in_stock: newStock, updated_at: now });
+            saleItems.push({
+                id: generateUUID(),
+                sale_id: saleId,
+                item_id: item.id,
+                item_name: item.name,
+                quantity: cartItem.quantity,
+                unit_price: item.sellingPrice,
+                cost_price: item.costPrice,
+                line_total: lineTotal,
+                profit_margin: ((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100,
+                created_at: now,
+                newStock: newStock // temporary property for the transaction
+            });
         }
 
         const totalAmount = subtotal + saleData.additionalCharges;
@@ -436,33 +444,47 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             created_by: currentUser.id, sale_date: today, created_at: now, updated_at: now
         };
 
-        // Insert sale locally
-        await db.runAsync(
-            `INSERT INTO sales (id, sale_number, status, subtotal, additional_charges, total_amount,
-       profit_amount, payment_method, created_by, sale_date, created_at, updated_at, is_synced, pending_operation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'create')`,
-            [saleRecord.id, saleRecord.sale_number, saleRecord.status, saleRecord.subtotal,
-            saleRecord.additional_charges, saleRecord.total_amount, saleRecord.profit_amount,
-            saleRecord.payment_method, saleRecord.created_by, saleRecord.sale_date,
-            saleRecord.created_at, saleRecord.updated_at]
-        );
+        // Execute all database operations inside a single transaction
+        await db.withTransactionAsync(async () => {
+            // Update inventory
+            for (const si of saleItems) {
+                await db.runAsync(
+                    `UPDATE items SET quantity_in_stock = ?, updated_at = ?, is_synced = 0, pending_operation = 'update' WHERE id = ?`,
+                    [si.newStock, now, si.item_id]
+                );
+                await addToSyncQueue('update', 'items', si.item_id, { quantity_in_stock: si.newStock, updated_at: now });
+            }
 
-        // Insert sale items
-        for (const si of saleItems) {
+            // Insert sale locally
             await db.runAsync(
-                `INSERT INTO sale_items (id, sale_id, item_id, item_name, quantity, unit_price, cost_price,
-         line_total, profit_margin, created_at, is_synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-                [si.id, si.sale_id, si.item_id, si.item_name, si.quantity, si.unit_price,
-                si.cost_price, si.line_total, si.profit_margin, si.created_at]
+                `INSERT INTO sales (id, sale_number, status, subtotal, additional_charges, total_amount,
+           profit_amount, payment_method, created_by, sale_date, created_at, updated_at, is_synced, pending_operation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'create')`,
+                [saleRecord.id, saleRecord.sale_number, saleRecord.status, saleRecord.subtotal,
+                saleRecord.additional_charges, saleRecord.total_amount, saleRecord.profit_amount,
+                saleRecord.payment_method, saleRecord.created_by, saleRecord.sale_date,
+                saleRecord.created_at, saleRecord.updated_at]
             );
-        }
 
-        // Add to sync queue
-        await addToSyncQueue('create', 'sales', saleId, saleRecord);
-        for (const si of saleItems) {
-            await addToSyncQueue('create', 'sale_items', si.id, si);
-        }
+            // Insert sale items
+            for (const si of saleItems) {
+                await db.runAsync(
+                    `INSERT INTO sale_items (id, sale_id, item_id, item_name, quantity, unit_price, cost_price,
+             line_total, profit_margin, created_at, is_synced)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+                    [si.id, si.sale_id, si.item_id, si.item_name, si.quantity, si.unit_price,
+                    si.cost_price, si.line_total, si.profit_margin, si.created_at]
+                );
+            }
+
+            // Add to sync queue
+            await addToSyncQueue('create', 'sales', saleId, saleRecord);
+            for (const si of saleItems) {
+                // clone without newStock
+                const { newStock, ...cleanSi } = si;
+                await addToSyncQueue('create', 'sale_items', cleanSi.id, cleanSi);
+            }
+        });
 
         await loadLocalData();
 
