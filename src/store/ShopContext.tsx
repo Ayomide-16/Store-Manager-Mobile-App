@@ -400,34 +400,42 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const item = items.find(i => i.id === cartItem.id);
             if (!item) continue;
 
-            const lineTotal = item.sellingPrice * cartItem.quantity;
+            const sellingPrice = Number(item.sellingPrice) || 0;
+            const costPrice = Number(item.costPrice) || 0;
+            const quantity = Number(cartItem.quantity) || 0;
+            const quantityInStock = Number(item.quantityInStock) || 0;
+
+            const lineTotal = sellingPrice * quantity;
             subtotal += lineTotal;
-            totalCost += item.costPrice * cartItem.quantity;
+            totalCost += costPrice * quantity;
+
+            const profitMargin = sellingPrice > 0 ? ((sellingPrice - costPrice) / sellingPrice) * 100 : 0;
 
             // Update local inventory
-            const newStock = item.quantityInStock - cartItem.quantity;
+            const newStock = quantityInStock - quantity;
             saleItems.push({
                 id: generateUUID(),
                 sale_id: saleId,
                 item_id: item.id,
-                item_name: item.name,
-                quantity: cartItem.quantity,
-                unit_price: item.sellingPrice,
-                cost_price: item.costPrice,
+                item_name: item.name || 'Unknown Item',
+                quantity: quantity,
+                unit_price: sellingPrice,
+                cost_price: costPrice,
                 line_total: lineTotal,
-                profit_margin: ((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100,
+                profit_margin: profitMargin,
                 created_at: now,
                 newStock: newStock // temporary property for the transaction
             });
         }
 
-        const totalAmount = subtotal + saleData.additionalCharges;
+        const additionalCharges = Number(saleData.additionalCharges) || 0;
+        const totalAmount = subtotal + additionalCharges;
         const profitAmount = totalAmount - totalCost;
 
         const saleRecord = {
             id: saleId, sale_number: saleNumber, status: SaleStatus.COMPLETED,
-            subtotal, additional_charges: saleData.additionalCharges, total_amount: totalAmount,
-            profit_amount: profitAmount, payment_method: saleData.paymentMethod,
+            subtotal, additional_charges: additionalCharges, total_amount: totalAmount,
+            profit_amount: profitAmount, payment_method: saleData.paymentMethod || 'CASH',
             created_by: currentUser.id, sale_date: today, created_at: now, updated_at: now
         };
 
