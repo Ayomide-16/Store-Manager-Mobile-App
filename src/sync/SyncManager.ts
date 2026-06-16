@@ -19,9 +19,10 @@ export const addToSyncQueue = async (
     operation: 'create' | 'update' | 'delete',
     tableName: string,
     recordId: string,
-    data: any
+    data: any,
+    txDb?: any
 ): Promise<void> => {
-    const db = await getDatabase();
+    const db = txDb || await getDatabase();
     const id = `sq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     await db.runAsync(

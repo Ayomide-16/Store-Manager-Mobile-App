@@ -447,7 +447,7 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     `UPDATE items SET quantity_in_stock = ?, updated_at = ?, is_synced = 0, pending_operation = 'update' WHERE id = ?`,
                     [si.newStock, now, si.item_id]
                 );
-                await addToSyncQueue('update', 'items', si.item_id, { quantity_in_stock: si.newStock, updated_at: now });
+                await addToSyncQueue('update', 'items', si.item_id, { quantity_in_stock: si.newStock, updated_at: now }, db);
             }
 
             // Insert sale locally
@@ -473,11 +473,11 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
 
             // Add to sync queue
-            await addToSyncQueue('create', 'sales', saleId, saleRecord);
+            await addToSyncQueue('create', 'sales', saleId, saleRecord, db);
             for (const si of saleItems) {
                 // clone without newStock
                 const { newStock, ...cleanSi } = si;
-                await addToSyncQueue('create', 'sale_items', cleanSi.id, cleanSi);
+                await addToSyncQueue('create', 'sale_items', cleanSi.id, cleanSi, db);
             }
         });
 
