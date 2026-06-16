@@ -86,13 +86,20 @@ export const pushChanges = async (): Promise<{ success: boolean; error?: string 
                     if (error) throw error;
                 }
 
-                // Remove from sync queue on success and mark as synced in a transaction
                 await db.withTransactionAsync(async () => {
                     await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [item.id]);
-                    await db.runAsync(
-                        `UPDATE ${tableName} SET is_synced = 1, pending_operation = NULL WHERE id = ?`,
-                        [item.record_id]
-                    );
+                    
+                    if (['sale_items', 'restock_items'].includes(tableName)) {
+                        await db.runAsync(
+                            `UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`,
+                            [item.record_id]
+                        );
+                    } else {
+                        await db.runAsync(
+                            `UPDATE ${tableName} SET is_synced = 1, pending_operation = NULL WHERE id = ?`,
+                            [item.record_id]
+                        );
+                    }
                 });
             } catch (err: any) {
                 console.error(`Sync error for ${tableName}:`, err);
