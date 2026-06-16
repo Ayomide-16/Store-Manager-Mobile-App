@@ -439,15 +439,21 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             created_by: currentUser.id, sale_date: today, created_at: now, updated_at: now
         };
 
-        // Execute all database operations inside a single transaction
-        await db.withTransactionAsync(async () => {
+        // Execute all database operations inside a manual transaction to bypass expo-sqlite Android bugs
+        await db.execAsync('BEGIN EXCLUSIVE TRANSACTION');
+        try {
             // Update inventory
             for (const si of saleItems) {
                 await db.runAsync(
                     `UPDATE items SET quantity_in_stock = ?, updated_at = ?, is_synced = 0, pending_operation = 'update' WHERE id = ?`,
                     [si.newStock, now, si.item_id]
                 );
-                await addToSyncQueue('update', 'items', si.item_id, { quantity_in_stock: si.newStock, updated_at: now }, db);
+                
+                const sqIdItem = `sq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                await db.runAsync(
+                    `INSERT INTO sync_queue (id, operation, table_name, record_id, data, created_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+                    [sqIdItem, 'update', 'items', si.item_id, JSON.stringify({ quantity_in_stock: si.newStock, updated_at: now }), now]
+                );
             }
 
             // Insert sale locally
@@ -473,18 +479,33 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
 
             // Add to sync queue
-            await addToSyncQueue('create', 'sales', saleId, saleRecord, db);
+            const sqIdSale = `sq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            await db.runAsync(
+                `INSERT INTO sync_queue (id, operation, table_name, record_id, data, created_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+                [sqIdSale, 'create', 'sales', saleId, JSON.stringify(saleRecord), now]
+            );
+
             for (const si of saleItems) {
                 // clone without newStock
                 const { newStock, ...cleanSi } = si;
-                await addToSyncQueue('create', 'sale_items', cleanSi.id, cleanSi, db);
+                const sqIdSi = `sq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                await db.runAsync(
+                    `INSERT INTO sync_queue (id, operation, table_name, record_id, data, created_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+                    [sqIdSi, 'create', 'sale_items', cleanSi.id, JSON.stringify(cleanSi), now]
+                );
             }
-        });
+
+            await db.execAsync('COMMIT');
+        } catch (error) {
+            await db.execAsync('ROLLBACK');
+            throw error;
+        }
 
         await loadLocalData();
 
         if (appState.isOnline) {
-            await performFullSync((status) => setAppState(prev => ({ ...prev, syncStatus: status })));
+            performFullSync((status) => setAppState(prev => ({ ...prev, syncStatus: status })))
+                .catch(err => console.error('Background sync failed:', err));
         }
     };
 
