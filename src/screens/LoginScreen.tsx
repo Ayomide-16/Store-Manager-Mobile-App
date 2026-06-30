@@ -40,6 +40,18 @@ const LoginScreen: React.FC = () => {
         }
     };
 
+    const handleDemoLogin = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            await login('admin@demo.com', 'password123');
+        } catch (err: any) {
+            setError(err.message || 'Demo login failed');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const openWebApp = async () => {
         try {
             await Linking.openURL(WEB_APP_URL);
@@ -59,7 +71,7 @@ const LoginScreen: React.FC = () => {
                     <Store color={theme.primary} size={48} />
                 </View>
 
-                <Text style={[styles.title, { color: theme.text }]}>Shop Manager</Text>
+                <Text style={[styles.title, { color: theme.text }]}>Venda</Text>
                 <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign in to your account</Text>
 
                 {/* Offline Indicator */}
@@ -122,6 +134,19 @@ const LoginScreen: React.FC = () => {
                         <Loader2 color="#fff" size={20} />
                     ) : (
                         <Text style={styles.loginButtonText}>Sign In</Text>
+                    )}
+                </TouchableOpacity>
+
+                {/* Demo Login Button */}
+                <TouchableOpacity
+                    style={[styles.demoLoginButton, isLoading && styles.loginButtonDisabled, { borderColor: theme.primary }]}
+                    onPress={handleDemoLogin}
+                    disabled={isLoading}
+                >
+                    {isLoading ? (
+                        <Loader2 color={theme.primary} size={20} />
+                    ) : (
+                        <Text style={[styles.demoLoginButtonText, { color: theme.primary }]}>Demo Login</Text>
                     )}
                 </TouchableOpacity>
 
@@ -227,6 +252,18 @@ const styles = StyleSheet.create({
     },
     loginButtonText: {
         color: '#fff',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    demoLoginButton: {
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        paddingVertical: 18,
+        borderRadius: 16,
+        alignItems: 'center',
+        marginTop: 12,
+    },
+    demoLoginButtonText: {
         fontSize: 16,
         fontWeight: '700',
     },
